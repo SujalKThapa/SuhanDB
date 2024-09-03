@@ -25,5 +25,11 @@ func main() {
 	item, _ := c.Find([]byte("Key1"))
 
 	fmt.Printf("key is: %s, value is: %s\n", item.key, item.value)
+
+	_ = c.Remove([]byte("Key1"))
+	item, _ = c.Find([]byte("Key1"))
+
+	dal.writeFreelist()
+	fmt.Printf("item is: %+v\n", item)
 	_ = dal.close()
 }
