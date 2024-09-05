@@ -6,7 +6,7 @@ type Collection struct {
 	name []byte
 	root pgnum
 
-	dal *dal
+	tx *tx
 }
 
 func newCollection(name []byte, root pgnum) *Collection {
@@ -21,20 +21,24 @@ func newCollection(name []byte, root pgnum) *Collection {
 // rebalance by splitting them accordingly. If the root has too many items, then a new root of a new layer is
 // created and the created nodes from the split are added as children.
 func (c *Collection) Put(key []byte, value []byte) error {
+	if !c.tx.write {
+		return writeInsideReadTextErr
+	}
+
 	i := newItem(key, value)
 
 	// On first insertion the root node does not exist, so it should be created
 	var root *Node
 	var err error
 	if c.root == 0 {
-		root, err = c.dal.writeNode(c.dal.newNode([]*Item{i}, []pgnum{}))
+		root = c.tx.writeNode(c.tx.newNode([]*Item{i}, []pgnum{}))
 		if err != nil {
 			return nil
 		}
 		c.root = root.pageNum
 		return nil
 	} else {
-		root, err = c.dal.getNode(c.root)
+		root, err = c.tx.getNode(c.root)
 		if err != nil {
 			return err
 		}
@@ -73,11 +77,11 @@ func (c *Collection) Put(key []byte, value []byte) error {
 	// Handle root
 	rootNode := ancestors[0]
 	if rootNode.isOverPopulated() {
-		newRoot := c.dal.newNode([]*Item{}, []pgnum{rootNode.pageNum})
+		newRoot := c.tx.newNode([]*Item{}, []pgnum{rootNode.pageNum})
 		newRoot.split(rootNode, 0)
 
 		// commit newly created root
-		newRoot, err = c.dal.writeNode(newRoot)
+		newRoot = c.tx.writeNode(newRoot)
 		if err != nil {
 			return err
 		}
@@ -90,7 +94,7 @@ func (c *Collection) Put(key []byte, value []byte) error {
 
 // Find Returns an item according based on the given key by performing a binary search.
 func (c *Collection) Find(key []byte) (*Item, error) {
-	n, err := c.dal.getNode(c.root)
+	n, err := c.tx.getNode(c.root)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +115,12 @@ func (c *Collection) Find(key []byte) (*Item, error) {
 // siblings don't have enough items, then merging occurs. If the root is without items after a split, then the root is
 // removed and the tree is one level shorter.
 func (c *Collection) Remove(key []byte) error {
+	if !c.tx.write {
+		return writeInsideReadTextErr
+	}
+
 	// Find the path to the node where the deletion should happen
-	rootNode, err := c.dal.getNode(c.root)
+	rootNode, err := c.tx.getNode(c.root)
 	if err != nil {
 		return err
 	}
@@ -170,7 +178,7 @@ func (c *Collection) Remove(key []byte) error {
 // c       d   e     f
 // For [0,1,0] -> p,b,e
 func (c *Collection) getNodes(indexes []int) ([]*Node, error) {
-	root, err := c.dal.getNode(c.root)
+	root, err := c.tx.getNode(c.root)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +186,7 @@ func (c *Collection) getNodes(indexes []int) ([]*Node, error) {
 	nodes := []*Node{root}
 	child := root
 	for i := 1; i < len(indexes); i++ {
-		child, err = c.dal.getNode(child.childNodes[indexes[i]])
+		child, err = c.tx.getNode(child.childNodes[indexes[i]])
 		if err != nil {
 			return nil, err
 		}

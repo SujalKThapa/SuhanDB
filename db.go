@@ -14,13 +14,13 @@ func Open(path string, options *Options) (*DB, error) {
 	var err error
 
 	options.pageSize = os.Getpagesize()
-	dal, err := newDal(path, Options)
+	dal, err := newDal(path, options)
 	if err != nil {
 		return nil, err
 	}
 
 	db := &DB{
-		sync.RWMutex,
+		sync.RWMutex{},
 		dal,
 	}
 
@@ -33,10 +33,10 @@ func (db *DB) Close() error {
 
 func (db *DB) ReadTx() *tx {
 	db.rwlock.RLock()
-	return newTx(db, False)
+	return newTx(db, false)
 }
 
 func (db *DB) WriteTx() *tx {
 	db.rwlock.Lock()
-	return newTx(db, True)
+	return newTx(db, true)
 }
