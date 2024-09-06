@@ -3,7 +3,8 @@ package main
 import "encoding/binary"
 
 const (
-	metaPageNum = 0
+	magicNumber uint32 = 0xD00DB00D
+	metaPageNum        = 0
 )
 
 // meta is the meta page of the db
@@ -22,6 +23,8 @@ func newEmptyMeta() *meta {
 
 func (m *meta) serialize(buf []byte) {
 	pos := 0
+	binary.LittleEndian.PutUint32(buf[pos:], magicNumber)
+	pos += magicNumberSize
 
 	binary.LittleEndian.PutUint64(buf[pos:], uint64(m.root))
 	pos += pageNumSize
@@ -32,6 +35,12 @@ func (m *meta) serialize(buf []byte) {
 
 func (m *meta) deserialize(buf []byte) {
 	pos := 0
+	magicNumberRes := binary.LittleEndian.Uint32(buf[pos:])
+	pos += magicNumberSize
+
+	if magicNumberRes != magicNumber {
+		panic("This file is not a libra DB file.")
+	}
 
 	m.root = pgnum(binary.LittleEndian.Uint64(buf[pos:]))
 	pos += pageNumSize

@@ -1,11 +1,16 @@
 package main
 
-import "bytes"
+import (
+	"bytes"
+	"encoding/binary"
+)
 
 type Collection struct {
-	name []byte
-	root pgnum
+	name    []byte
+	root    pgnum
+	counter uint64
 
+	// associated transaction
 	tx *tx
 }
 
@@ -13,6 +18,43 @@ func newCollection(name []byte, root pgnum) *Collection {
 	return &Collection{
 		name: name,
 		root: root,
+	}
+}
+
+func newEmptyCollection() *Collection {
+	return &Collection{}
+}
+
+func (c *Collection) ID() uint64 {
+	if !c.tx.write {
+		return 0
+	}
+
+	id := c.counter
+	c.counter += 1
+	return id
+}
+
+func (c *Collection) serialize() *Item {
+	b := make([]byte, collectionSize)
+	leftPos := 0
+	binary.LittleEndian.PutUint64(b[leftPos:], uint64(c.root))
+	leftPos += pageNumSize
+	binary.LittleEndian.PutUint64(b[leftPos:], c.counter)
+	leftPos += counterSize
+	return newItem(c.name, b)
+}
+
+func (c *Collection) deserialize(item *Item) {
+	c.name = item.key
+
+	if len(item.value) != 0 {
+		leftPos := 0
+		c.root = pgnum(binary.LittleEndian.Uint64(item.value[leftPos:]))
+		leftPos += pageNumSize
+
+		c.counter = binary.LittleEndian.Uint64(item.value[leftPos:])
+		leftPos += counterSize
 	}
 }
 
@@ -32,9 +74,6 @@ func (c *Collection) Put(key []byte, value []byte) error {
 	var err error
 	if c.root == 0 {
 		root = c.tx.writeNode(c.tx.newNode([]*Item{i}, []pgnum{}))
-		if err != nil {
-			return nil
-		}
 		c.root = root.pageNum
 		return nil
 	} else {
@@ -82,9 +121,6 @@ func (c *Collection) Put(key []byte, value []byte) error {
 
 		// commit newly created root
 		newRoot = c.tx.writeNode(newRoot)
-		if err != nil {
-			return err
-		}
 
 		c.root = newRoot.pageNum
 	}
@@ -171,10 +207,12 @@ func (c *Collection) Remove(key []byte) error {
 }
 
 // getNodes returns a list of nodes based on their indexes (the breadcrumbs) from the root
-//           p
-//       /       \
-//     a          b
-//  /     \     /   \
+//
+//	         p
+//	     /       \
+//	   a          b
+//	/     \     /   \
+//
 // c       d   e     f
 // For [0,1,0] -> p,b,e
 func (c *Collection) getNodes(indexes []int) ([]*Node, error) {
@@ -186,10 +224,7 @@ func (c *Collection) getNodes(indexes []int) ([]*Node, error) {
 	nodes := []*Node{root}
 	child := root
 	for i := 1; i < len(indexes); i++ {
-		child, err = c.tx.getNode(child.childNodes[indexes[i]])
-		if err != nil {
-			return nil, err
-		}
+		child, _ = c.tx.getNode(child.childNodes[indexes[i]])
 		nodes = append(nodes, child)
 	}
 	return nodes, nil
